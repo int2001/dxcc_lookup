@@ -27,19 +27,21 @@ my $version = 'VERSION';
 my $gui = 0;
 my $earthfile = '';		# world map. location will be found later.
 my $splash =  "                    Please enter a callsign!";
+my $gmservice=0;	# swtich to 1 to act as daemon // 0 reads all calls given to stdin and try to resolve
 my $credits = "dxcc $version (c) Fabian Kurz, DJ1YFK.  http://fkurz.net/ham/dxcc.html
-
 Determines the ARRL DXCC entity of a ham radio callsign, based on the cty.dat
 country file by Jim Reisert, AD1C (http://country-files.com/). 
 
 This is free software, and you are welcome to redistribute it
 under certain conditions (see COPYING).";
+my $worker;
 
+if ($gmservice) {
 use Gearman::Worker;
-my $worker = Gearman::Worker->new;
+$worker = Gearman::Worker->new;
 $worker->job_servers( '127.0.0.1');
-$worker->register_function(dxcc => \&dxcc_lookup);
-
+$worker->register_function(dxcc_test => \&dxcc_lookup);
+}
 
 
 my %fullcalls;          # hash of full calls (=DL1XYZ)
@@ -55,8 +57,27 @@ my $csadditions="(^P\$)|(^M{1,2}\$)|(^AM\$)|(^A\$)";
 
 &read_cty();
 
-while(1) {
+while(1 && $gmservice) {
 	$worker->work;
+}
+
+if (!($gmservice)) {
+	while (my $call = <>) {
+		print dxcc_t_lookup($call)."\n";
+	}
+}
+
+sub dxcc_t_lookup {
+	my ($testcall)=@_;
+	my @res_dxcc=dxcc("\U$testcall");
+	my $result={};
+	$result->{'call'}=$res_dxcc[7];
+	$result->{'entity'}=$res_dxcc[0];
+	$result->{'cont'}=$res_dxcc[3];
+	$result->{'lat'}=$res_dxcc[4];
+	$result->{'long'}=$res_dxcc[5];
+	$result->{'waz'}=$res_dxcc[1];
+	return(encode_json($result));
 }
 
 sub dxcc_lookup {
