@@ -36,12 +36,12 @@ This is free software, and you are welcome to redistribute it
 under certain conditions (see COPYING).";
 my $worker;
 
-if ($gmservice) {
-use Gearman::Worker;
-$worker = Gearman::Worker->new;
-$worker->job_servers( '127.0.0.1');
-$worker->register_function(dxcc_test => \&dxcc_lookup);
-}
+#if ($gmservice) {
+#use Gearman::Worker;
+#$worker = Gearman::Worker->new;
+#$worker->job_servers( '127.0.0.1');
+#$worker->register_function(dxcc_test => \&dxcc_lookup);
+#}
 
 
 my %fullcalls;          # hash of full calls (=DL1XYZ)
@@ -57,9 +57,9 @@ my $csadditions="(^P\$)|(^M{1,2}\$)|(^AM\$)|(^A\$)";
 
 &read_cty();
 
-while(1 && $gmservice) {
-	$worker->work;
-}
+#while(1 && $gmservice) {
+#	$worker->work;
+#}
 
 if (!($gmservice)) {
 	while (my $call = <>) {
