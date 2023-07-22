@@ -1,3 +1,22 @@
+# gearman-version of DXCC
+## Install:
+* perl of cause
+* gearman (`apt install gearman`)
+* perl-modules (install via cpan or apt):
+ * JSON
+ * Gearman-perl (`apt install libgearman-client-perl`)
+
+## Run
+* start dxcc within pm2 (`pm2 start ./dxcc --interpreter=perl`) or tmux or supervisor -> http://supervisord.org/
+* Lean back
+
+## Usage
+* Call dxcc_lookup function via gearman (See testclient.pl) and add call to check as parameter. It will return DXCC-Informations about the Call as a JSON-Object
+
+------------------------------------
+
+
+# Based up on:
 dxcc VERSION by Fabian Kurz, DJ1YFK.  http://fkurz.net/ham/dxcc/
 ------------------------------------------------------------------------
 

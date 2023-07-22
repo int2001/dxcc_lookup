@@ -18,10 +18,11 @@
 # along with this program; if not, write to the 
 # Free Software Foundation, Inc., 59 Temple Place - Suite 330, 
 # Boston, MA 02111-1307, USA. 
-
+$|=1;
 use strict;
 use POSIX;
-
+use JSON;
+use Data::Dumper;
 my $version = 'VERSION';
 my $gui = 0;
 my $earthfile = '';		# world map. location will be found later.
@@ -34,192 +35,58 @@ country file by Jim Reisert, AD1C (http://country-files.com/).
 This is free software, and you are welcome to redistribute it
 under certain conditions (see COPYING).";
 
+use Gearman::Worker;
+my $worker = Gearman::Worker->new;
+$worker->job_servers( '127.0.0.1');
+$worker->register_function(dxcc => \&dxcc_lookup);
+
+
+
 my %fullcalls;          # hash of full calls (=DL1XYZ)
 my %prefixes;			# hash of arrays  main prefix -> (all, prefixes,..)
 my %dxcc;				# hash of arrays  main prefix -> (CQZ, ITUZ, ...)
 my $mainprefix;
-my @dxcc;
 
-my ($mylat, $mylon) = (0,0);
-my $args='';
+#my ($mylat, $mylon) = (0,0);
+#my $args='';
 
 my $lidadditions="^QRP\$|^LGT\$";
 my $csadditions="(^P\$)|(^M{1,2}\$)|(^AM\$)|(^A\$)";
 
 &read_cty();
 
-if (!$ARGV[0] || ($ARGV[0] =~ /-[^mg]/)) {
-print "$credits
-
-Usage:  dxcc <callsign>\n\n";
-		
-exit;
-}
-else {
-	$args = "@ARGV";
-	if ($args =~ /-g/) {
-		$gui = 1;
-	}
-	if ($args =~ /-m (.+?)\b/) {			# Own DXCC for beam headings
-		($mylat, $mylon)  = (&dxcc("\U$1"))[4,5];
-		$args =~ s/.+\b([A-Z0-9\/]+)/$1/g;
-	}
+while(1) {
+	$worker->work;
 }
 
-unless ($gui) {
-	my @dxcc = &dxcc("\U$args");
-
-	my ($bearing, $distance) = &qrbqtf($mylat, $mylon, $dxcc[4], $dxcc[5]);
-
-	print "Callsign: \U$args\n\n";
-
-	print "Main Prefix:    $dxcc[7]\n";
-	print "Country Name:   $dxcc[0]\n";
-	print "WAZ Zone:       $dxcc[1]\n";
-	print "ITU Zone:       $dxcc[2]\n";
-	print "Continent:      $dxcc[3]\n";
-	print "Latitude:       $dxcc[4]\n";
-	print "Longitude:      $dxcc[5]\n";
-	print "UTC shift:      $dxcc[6]\n";
-	if ($mylat || $mylon) {
-	print "Bearing:        $bearing°\n";
-	print "Distance:       $distance km\n";
-	}
-	print "\n";
+sub dxcc_lookup {
+	my $testcall=shift;
+	$testcall=$testcall->arg;
+	my @res_dxcc=dxcc("\U$testcall");
+	my $result={};
+	$result->{'call'}=$res_dxcc[7];
+	$result->{'entity'}=$res_dxcc[0];
+	$result->{'cont'}=$res_dxcc[3];
+	$result->{'lat'}=$res_dxcc[4];
+	$result->{'long'}=$res_dxcc[5];
+	$result->{'waz'}=$res_dxcc[1];
+	return(encode_json($result));
 }
 
-###############################################################################
-# GUI
-# This part is for the GUI only. 
-###############################################################################
-
-else {								# if $gui
-
-	our $hastk = 0;
-	foreach (@INC) {
-		if (-e $_."/Tk.pm") {
-			$hastk = 1;
-		}
-	}
-	
-	unless ($hastk) {
-		die "Tk.pm not found. Exiting.";
-	}
-
-	# This is like 'use Tk', except that use is always done at compile
-	# time, which is not wanted in this case (when running w/o gui).
-	require Tk; import Tk; 
-
-	$earthfile = &search_earth_file;
-
-	print "Found earth.gif: $earthfile\n";
-
-	my $callsign='';
-
-	my $dxcc_result = $splash;
-	my $mw = MainWindow->new(); 
-	$mw->geometry("640x480");
-	$mw->title("dxcc - a DXCC lookup utility");
-
-	my $dot;
-	my $t_frame = $mw->Frame(-relief=>'groove', -bd=>1)
-		->pack(-side => 'top', -fill => 'y');
-	my $m_frame = $mw->Frame(-bd => 2)
-		->pack(-side => 'top', -fill => 'y');
-	my $b_frame = $mw->Frame( -bd => 2)
-		->pack(-side => 'bottom', -fill => 'both');
-
-	my $canvas = $t_frame->Canvas(-height => 320, -width=> 640  )->pack( );	   
-	my $photo = $t_frame->Photo( -file => $earthfile );
-	my $earth = $canvas->createImage(320,160, -image=> $photo, -tags => 'item');
-
-	# Home-Marker, if $mylon || $mylat set
-	if ($mylon || $mylat) {
-		my $homedot = $canvas->createOval((640*(180 - $mylon)/360)-5,(320*(90 -
-				$mylat)/180)-5, (640*(180 - $mylon)/360)+5, 
-				(320*(90 - $mylat)/180)+5, -fill => 'green');
-	}
-
-	$m_frame->Label(-text => "Callsign: ")->pack(-side => 'left');
-	my $call_entry = $m_frame->Entry(-textvariable => \$callsign,
-		-relief => 'sunken', -validate => 'all', -validatecommand => 
-		\&validate) ->pack(-side =>'right');
-	
-	$call_entry->focus;
-
-	$mw->Label(-textvariable => \$dxcc_result, -justify => 'left',
-			-font => "courier 12")->pack(-side => 'left');
-
-
-	my $exit_b = $b_frame->Button(-text => "Exit", -command => sub { exit })
-		->pack(-side=>'right', -expand => 1);
-	my $clear_b= $b_frame->Button(-text => "Clear", -command => 
-		sub { $call_entry->delete(0, 'end'); $callsign = ''; })
-		->pack(-side => 'left', -expand => 1);
-
-	my $credits_b = $b_frame->Button(-text => "Credits", -command => \&credits)
-	->pack(-side => 'left', -expand => 1);
-
-	MainLoop(); 
-
-sub validate {
-	if ($_[1] =~ /[0-9A-Za-z\/]/) {
-		@dxcc = &dxcc("\U$_[0]");
-		my ($bearing, $distance) = &qrbqtf($mylat, $mylon, $dxcc[4], $dxcc[5]);
-		unless ($dxcc[2]) {
-			$dxcc_result = $splash;
-		}
-		else {
-			$dxcc[0] .= " ($dxcc[7])";
-			$dxcc_result = sprintf(
-			"Country Name:   %-20s".
-			"WAZ Zone:       %s\n".
-			"ITU Zone:       %-20s".
-			"Continent:      %s\n".
-			"Latitude:       %-20s".
-			"Longitude:      %s\n".
-			"UTC shift:      %-20s\n", @dxcc[0..6]
-			);
-			if ($mylat || $mylon) {		# One may be zero :-)
-				$dxcc_result .= sprintf(
-					"Distance (km):  %-20s".
-					"Bearing (°):    %s\n", 
-					$distance, $bearing
-				)
-			}
-		}
-
-		my $lon = 640*(180 - $dxcc[5])/360;
-		my $lat = 320*(90 - $dxcc[4])/180;
-
-		$canvas->delete($dot) if (defined($dot));
-		
-		$dot = $canvas->createOval($lon-5,$lat-5, $lon+5, $lat+5, -fill =>
-				'red') if ($dxcc[2]); 
-
-		return 1;
-	}
-	else {
-		return 0;
-	}
-}
-
-sub credits {
-	my $creditwindow = MainWindow->new(); 
-	$creditwindow->geometry("500x170");
-	$creditwindow->title("dxcc - Credits");
-	$creditwindow->Label(-text => 
-	"$credits\n\nMap: http://earthobservatory.nasa.gov/Newsroom/BlueMarble/",
-		-justify => 'left')->pack();
-	my $exit_b = $creditwindow->Button(-text => "Exit", -command => 
-		sub { $creditwindow->destroy })
-		->pack(-side=>'right', -expand => 1);
-}
-
-}
-# End of GUI
-
-###############################################################################
+#	my @dxcc = &dxcc("\U$args");
+#
+#	print "Callsign: \U$args\n\n";
+#
+#	print "Main Prefix:    $dxcc[7]\n";
+#	print "Country Name:   $dxcc[0]\n";
+#	print "WAZ Zone:       $dxcc[1]\n";
+#	print "ITU Zone:       $dxcc[2]\n";
+#	print "Continent:      $dxcc[3]\n";
+#	print "Latitude:       $dxcc[4]\n";
+#	print "Longitude:      $dxcc[5]\n";
+#	print "UTC shift:      $dxcc[6]\n";
+#	print "\n";
+#
 #
 # &wpx derives the Prefix following WPX rules from a call. These can be found
 # at: http://www.cq-amateur-radio.com/wpxrules.html
