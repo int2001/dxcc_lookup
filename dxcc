@@ -62,6 +62,7 @@ while(1) {
 sub dxcc_lookup {
 	my $testcall=shift;
 	$testcall=$testcall->arg;
+	#print "Resolve for ".$testcall."\n";
 	my @res_dxcc=dxcc("\U$testcall");
 	my $result={};
 	$result->{'call'}=$res_dxcc[7];
