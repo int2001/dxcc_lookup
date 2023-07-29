@@ -51,7 +51,8 @@ my $mainprefix;
 #my $args='';
 
 my $lidadditions="^QRP\$|^LGT\$";
-my $csadditions="(^P\$)|(^M{1,2}\$)|(^AM\$)|(^A\$)";
+my $csadditions="(^P\$)|(^M\$)|(^A\$)|(^R\$)|(^LH\$)";
+my $noneadditions = "(^MM\$|^AM\$)";
 
 &read_cty();
 
@@ -95,9 +96,8 @@ sub dxcc_lookup {
 # not want the OP wanted, it can still be modified manually.
 #
 ###############################################################################
- 
 sub wpx {
-  my ($prefix,$a,$b,$c);
+  my ($prefix, $a, $b, $c, $temp);
   
   # First check if the call is in the proper format, A/B/C where A and C
   # are optional (prefix of guest country and P, MM, AM etc) and B is the
@@ -132,6 +132,9 @@ if (!$c && $a && $b) {                  # $a and $b exist, no $c
             $b = $a; $a = undef;        # $a goes to $b, delete lid-add
         }
         elsif (($a =~ /\d[A-Z]+$/) && ($b =~ /\d$/)) {   # check for call in $a
+			$temp = $b;
+			$b = $a;
+			$a = $temp;
         }
 }    
 
@@ -165,7 +168,7 @@ if (!$c && $a && $b) {                  # $a and $b exist, no $c
             }
     }        
     elsif ((not defined $a) && (defined $c)) {   # Case 2, CALL/X
-           if ($c =~ /^(\d)$/) {              # Case 2.1, number
+			if ($c =~ /^(\d)$/) {              # Case 2.1, number
                 $b =~ /(.+\d)[A-Z]*/;            # regular Prefix in $1
                 # Here we need to find out how many digits there are in the
                 # prefix, because for example A45XR/0 is A40. If there are 2
@@ -175,36 +178,42 @@ if (!$c && $a && $b) {                  # $a and $b exist, no $c
                 # and if they do, it's very unlikely for them to have a number
                 # attached.   You can still edit it by hand anyway..  
                 if ($1 =~ /^([A-Z]\d)\d$/) {        # e.g. A45   $c = 0
-                                $prefix = $1 . $c;  # ->   A40
+					$prefix = $1 . $c;  			# ->   A40
                 }
-                else {                         # Otherwise cut all numbers
-                $1 =~ /(.*[A-Z])\d+/;          # Prefix w/o number in $1
-                $prefix = $1 . $c;}            # Add attached number    
+                else {                              # Otherwise cut all numbers
+					$1 =~ /(.*[A-Z])\d+/;           # Prefix w/o number in $1
+					$prefix = $1 . $c;              # Add attached number    
+				}
             } 
             elsif ($c =~ /$csadditions/) {
                 $b =~ /(.+\d)[A-Z]*/;       # Known attachment -> like Case 1.1
                 $prefix = $1;
             }
+			elsif ($c =~ /$noneadditions/) {
+				return undef;
+			}
             elsif ($c =~ /^\d\d+$/) {		# more than 2 numbers -> ignore
                 $b =~ /(.+\d)[A-Z]*/;       # see above
                 $prefix = $1;
 			}
 			else {                          # Must be a Prefix!
                     if ($c =~ /\d$/) {      # ends in number -> good prefix
-                            $prefix = $c;
+						$prefix = $c;
                     }
                     else {                  # Add Zero at the end
-                            $prefix = $c . "0";
+						$prefix = $c . "0";
                     }
             }
     }
-    elsif (defined $a) {                    # $a contains the prefix we want
-            if ($a =~ /\d$/) {              # ends in number -> good prefix
-                    $prefix = $a
-            }
-            else {                          # add zero if no number
-                    $prefix = $a . "0";
-            }
+    elsif ((defined $a) && ($c =~ /$noneadditions/)) {                    # $a contains the prefix we want
+		return undef;
+	} elsif (defined $a) {
+		if ($a =~ /\d$/) {              # ends in number -> good prefix
+				$prefix = $a
+		}
+		else {                          # add zero if no number
+				$prefix = $a . "0";
+		}
     }
 
 # In very rare cases (right now I can only think of KH5K and KH7K and FRxG/T
@@ -221,7 +230,6 @@ return $prefix;
 }
 else { return ''; }    # no proper callsign received.
 } # wpx ends here
-
 
 ##############################################################################
 #
@@ -252,7 +260,6 @@ else { return ''; }    # no proper callsign received.
 # "latitude", "longitude", "UTC difference", "DXCC").   
 #
 ###############################################################################
-
 sub dxcc {
 	my $testcall = shift;
 	my $matchchars=0;
@@ -262,10 +269,24 @@ sub dxcc {
 	my $goodzone;
 	my $letter='';
 
+	my $prefix = '';
+	my $suffix = '';
+	my $callsign = '';
+	my $result = '';
+
 
 if ($fullcalls{$testcall}) {            # direct match with "="
     # do nothing! don't try to resolve WPX, it's a full
     # call and will match correctly even if it contains a /
+}
+elsif ($testcall =~ /(^KG4)[A-Z09]{3}/) {       # KG4/ and KG4 5 char calls are Guantanamo Bay. If 4 or 6 char, it is USA
+	$testcall = "K";
+} 
+elsif ($testcall =~ /(^KG4)[A-Z09]{2}/) {
+	$testcall = "KG4";
+} 
+elsif ($testcall =~ /(^KG4)[A-Z09]{1}/) {
+	$testcall = "K";
 }
 elsif ($testcall =~ /(^OH\/)|(\/OH[1-9]?$)/) {    # non-Aland prefix!
     $testcall = "OH";                      # make callsign OH = finland
@@ -280,8 +301,31 @@ elsif ($testcall =~ /(^LZ\/)|(\/LZ[1-9]?$)/) {  # LZ/ is LZ0 by DXCC but this is
     $testcall = "LZ";
 }
 elsif ($testcall =~ /\w\/\w/) {             # check if the callsign has a "/"
-    $testcall = &wpx($testcall,1)."AA";		# use the wpx prefix instead, which may
-                                         # intentionally be wrong, see &wpx!
+	if ($testcall =~ /^((\d|[A-Z])+\/)?((\d|[A-Z]){3,})(\/(\d|[A-Z])+)?(\/(\d|[A-Z])+)?$/) {
+		$prefix = $1;
+		$callsign = $3;
+		$suffix = $5;
+		if ($prefix) {
+			chop $prefix;					# Remove the / at the end
+		}
+		if ($suffix) {
+			$suffix = substr($suffix, 1); # Remove the / at the beginning
+		};
+		if ($suffix =~ /$csadditions/) {
+			if ($prefix) {
+				$testcall = $prefix;
+			} else {
+				$testcall = $callsign;
+			}
+		} else {
+			$result = &wpx($testcall, 1);                       # use the wpx prefix instead
+			if ($result eq "") {
+				return '';
+			} else {
+				$testcall = $result . "AA";
+			}
+		}
+	}
 }
 
 $letter = substr($testcall, 0,1);
@@ -356,7 +400,6 @@ $mydxcc[7] =~ s/\///g;
 return @mydxcc; 
 
 } # dxcc ends here 
-
 
 sub read_cty {
 	# Read cty.dat from AD1C, or this program itself (contains cty.dat)
